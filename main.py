@@ -468,8 +468,13 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 meter_table_ref = f"A{timestamp_row}:{last_col_letter}{row_end}"
 
                 table = Table(displayName=f"MeterTable_{uuid4().hex[:6]}", ref=meter_table_ref)
-                style = TableStyleInfo(name="TableStyleMedium9", showFirstColumn=False,
-                                       showLastColumn=False, showRowStripes=True, showColumnStripes=False)
+                style = TableStyleInfo(
+                    name="TableStyleMedium9",
+                    showFirstColumn=False,
+                    showLastColumn=False,
+                    showRowStripes=True,
+                    showColumnStripes=False
+                )
                 table.tableStyleInfo = style
                 sheet.add_table(table)
             else:
@@ -479,6 +484,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
         ieso_total = 0
         hospital_total = 0
+        nf91_total = 0
 
         for cell in usage_cells:
             meter_header = sheet.cell(row=timestamp_row, column=cell.column).value
@@ -487,15 +493,30 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
 
             normalized = str(meter_header).replace("\n", "").replace(" ", "")
 
-            if "12T1Q1" in normalized or "12T2Q3" in normalized:
-                ieso_total += cell.value or 0
-            if "12M14A" in normalized or "12M21" in normalized:
-                hospital_total += cell.value or 0
+            # Regular IESO and Hospital file
+            if "IESO and Hospital Total Revised" not in filename:
+                if "12T1Q1" in normalized or "12T2Q3" in normalized:
+                    ieso_total += cell.value or 0
+                if "12M14A" in normalized or "12M21" in normalized:
+                    hospital_total += cell.value or 0
+            else:
+                # Revised logic: Add Q1 + Q3, subtract NF91 G9-G12
+                if "12T1Q1" in normalized or "12T2Q3" in normalized:
+                    ieso_total += cell.value or 0
+                if "NF91" in normalized and ("G9" in normalized or "G10" in normalized or "G11" in normalized or "G12" in normalized):
+                    nf91_total += cell.value or 0
+                if "12M14A" in normalized or "12M21" in normalized:
+                    hospital_total += cell.value or 0
+
+        # Adjust for revised case
+        if "IESO and Hospital Total Revised" in filename:
+            ieso_total = ieso_total - nf91_total
 
         university_total = ieso_total - hospital_total
 
         base_col = sheet.max_column + 3  # Write 3 columns to the right of existing content
-        sheet.cell(row=usage_row_index, column=base_col, value="IESO Purchased:")
+        label = "IESO Purchased (Revised):" if "Revised" in filename else "IESO Purchased:"
+        sheet.cell(row=usage_row_index, column=base_col, value=label)
         sheet.cell(row=usage_row_index, column=base_col + 1, value=round(ieso_total, 2))
 
         sheet.cell(row=usage_row_index + 1, column=base_col, value="Hospital Usage:")
@@ -504,29 +525,18 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
         sheet.cell(row=usage_row_index + 2, column=base_col, value="University Usage:")
         sheet.cell(row=usage_row_index + 2, column=base_col + 1, value=round(university_total, 2))
 
-        # Format the summary values to look clean and readable
+        # Format the summary values
         for r in range(usage_row_index, usage_row_index + 3):
             val_cell = sheet.cell(row=r, column=base_col + 1)
             val_cell.number_format = '#,##0.00'
             val_cell.alignment = Alignment(horizontal="right", vertical="center")
 
-        # Widen the summary columns
+        # Widen summary columns
         for c in [base_col, base_col + 1]:
             col_letter = get_column_letter(c)
             sheet.column_dimensions[col_letter].width = 20
 
-    # Column width and number formatting pass
-    for col in sheet.iter_cols(min_row=usage_row_index + 1, max_row=sheet.max_row, min_col=1, max_col=sheet.max_column):
-        col_letter = get_column_letter(col[0].column)
-        max_len = max((len(str(cell.value)) for cell in col if cell.value is not None), default=10)
-        sheet.column_dimensions[col_letter].width = max_len + 2  # Ensure values fit cleanly
 
-        for cell in col:
-            if isinstance(cell.value, (int, float)):
-                cell.number_format = '#,##0.00'
-                cell.alignment = Alignment(horizontal='right', vertical='center')
-            elif isinstance(cell.value, str) and col[0].column == 1:
-                cell.alignment = Alignment(horizontal='left', vertical='center')  # Timestamp stays left-aligned
 
     # Apply a table style to the main data if not already styled (non-IESO sheet)
     if "IESO and Hospital" not in filename:
