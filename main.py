@@ -310,6 +310,7 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
     # Identify ABB here so we can tweak ONLY the top blank rows behavior
     base_lower = os.path.splitext(filename)[0].lower()
     is_abb = base_lower.startswith("abb ") or base_lower.startswith("abb_") or base_lower.startswith("abb")
+    is_peter_george_89e8 = base_lower.startswith("residence - peter george 89e8")
 
     # Information Requiring Your Attention (IRYA) section handling
     irya_found = False
@@ -402,7 +403,10 @@ def format_excel(input_path, intermediate_subfolder, master_data, building_name,
                 break
 
         is_cogen = "cogen" in building_name.lower()
-        usage = (round_to_nearest_power_of_10(flip_value, is_cogen) - first + last) if flip_value and ((last < first and not is_cogen) or (last > first and is_cogen)) else last - first
+        if is_peter_george_89e8:
+            usage = sum(value for _, value in values) / 4
+        else:
+            usage = (round_to_nearest_power_of_10(flip_value, is_cogen) - first + last) if flip_value and ((last < first and not is_cogen) or (last > first and is_cogen)) else last - first
 
         raw_meter_name = meter_labels[i - 1] if i - 1 < len(meter_labels) else f"Meter {i}"
         clean_meter = extract_clean_meter_name(str(raw_meter_name))
